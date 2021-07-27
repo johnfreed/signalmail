@@ -70,6 +70,7 @@ try:
     max_attachmentsize = config['MAIL']['max_attachmentsize']
 
     configversion = config['OTHER']['version']
+    autoreply = config['OTHER']['autoreply']
     contacts = config.items("CONTACTS")
 except KeyError:
     print("Configuration error -- " + botconfigpath + "config.ini incomplete", file=sys.stderr)
@@ -122,7 +123,11 @@ def msgRcv (timestamp, sender, groupId, message, attachmentlist):
     if debug: print("msgRcv called")
     if debug: print("timestamp: ", timestamp, " sender: ", sender, " groupId: ", groupId, " message: ", message, " attachmentlist: ", attachmentlist)
 
-
+    if autoreply and sender:
+        bus = SessionBus()
+        signal_client = bus.get('org.asamk.Signal')
+        signal_client.sendMessage(autoreply, [], sender)
+        
     sendername = "unknown"
 
     # contacts lookup:
