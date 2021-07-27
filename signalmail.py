@@ -6,6 +6,12 @@
 #    Configuration file $HOME/.local/share/signalmail/config.ini should be self explanatory.
 
 
+##########################
+botconfigpath = "$HOME/.local/share/signalmail/"
+version = "0.7.0"
+##########################
+
+
 import sys
 import os 
 import argparse # argument parser
@@ -23,8 +29,9 @@ import magic   # because DBus processor strips contentType
 from pydbus import SessionBus   # for DBus processing
 from gi.repository import GLib  # for DBus processing
 
+botconfigpath = os.path.expandvars(botconfigpath)
 
-botconfigpath = os.path.expandvars("$HOME/.local/share/signalmail/")
+
 if not os.path.exists(botconfigpath):
     try:
         os.makedirs(botconfigpath)
@@ -62,7 +69,7 @@ try:
     smtppassword = config['MAIL']['smtppassword']
     max_attachmentsize = config['MAIL']['max_attachmentsize']
 
-    version = config['OTHER']['version']
+    configversion = config['OTHER']['version']
     contacts = config.items("CONTACTS")
 except KeyError:
     print("Configuration error -- " + botconfigpath + "config.ini incomplete", file=sys.stderr)
