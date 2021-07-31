@@ -7,8 +7,7 @@
 
 
 ##########################
-botconfigpath = "$HOME/.local/share/signalmail/"
-version = "0.7.0"
+version = "0.7.1"
 ##########################
 
 
@@ -29,79 +28,125 @@ import magic   # because DBus processor strips contentType
 from pydbus import SessionBus   # for DBus processing
 from gi.repository import GLib  # for DBus processing
 
-botconfigpath = os.path.expandvars(botconfigpath)
-
-
-if not os.path.exists(botconfigpath):
-    try:
-        os.makedirs(botconfigpath)
-    except OSError as error:
-        print(error, file=sys.stderr)
-        print("Configuration error -- " + botconfigpath + " must have read/write access", file=sys.stderr)
-    try:
-        f = open(botconfigpath + 'config.ini', 'w')
-        f.close()
-        print("Configuration error -- " + botconfigpath + "config.ini is empty", file=sys.stderr)
-        raise SystemExit(1)
-    except OSError as error:
-        print(error, file=sys.stderr)
-        print("Configuration error -- " + botconfigpath + " must have read/write access", file=sys.stderr)
-        raise SystemExit(1)
-config = configparser.ConfigParser()
-config.optionxform = lambda option: option # otherwise its lowercase only
-config.read(botconfigpath + 'config.ini')
-try:
-    debug = config['SWITCHES'].getboolean('debug')
-    sendmail = config['SWITCHES'].getboolean('sendmail')
-    deleteattachments = config['SWITCHES'].getboolean('deleteattachments') 
-
-    signalnumber = config['SIGNAL']['signalnumber']
-    signalgroupid = config['SIGNAL']['signalgroupid']
-    signal_cli_path = config['SIGNAL']['signal_cli_path']
-    attachmentpath = os.path.expandvars(config['SIGNAL']['signalconfigpath']) + "attachments/"
-
-    mailfrom = config['MAIL']['mailfrom']
-    mailsubject = config['MAIL']['mailsubject']
-    addr_list = config['MAIL']['addr_list']
-    smtpserver = config['MAIL']['smtpserver']
-    smtpport = config['MAIL']['smtpport']
-    smtpuser = config['MAIL']['smtpuser']
-    smtppassword = config['MAIL']['smtppassword']
-    max_attachmentsize = config['MAIL']['max_attachmentsize']
-
-    configversion = config['OTHER']['version']
-    autoreply = config['OTHER']['autoreply']
-    contacts = config.items("CONTACTS")
-except KeyError:
-    print("Configuration error -- " + botconfigpath + "config.ini incomplete", file=sys.stderr)
+data_dir = os.path.join("$HOME",".local","share","signalmail","")
 
 # cli arg parser and help message:
 parser=argparse.ArgumentParser(
     description='''signalmail is a Python script which can send Signal messages via Email.
     It's relying on signal-cli (https://github.com/AsamK/signal-cli) to fetch the actual messages.
-    Configuration is done in ''' + botconfigpath + "config.ini " + ''' and should be self explanatory.''')
-parser.add_argument("--sendmail", action="store_true", help="override config and send mail")
-parser.add_argument("--notsendmail", action="store_true", help="override config and do not send mail")
+    Configuration is done in config.ini in DATA_DIR and should be self explanatory.''')
+parser.add_argument("--no-sendmail", dest="no_sendmail", action="store_true", help="override config and do not send mail")
+parser.add_argument("--keep-attachments", dest="keep_attachments", action="store_true", help="override config and keep attachments")
+parser.add_argument("--data-dir", dest="data_dir", help="set data directory (default: " + data_dir+ ")")
 parser.add_argument("--debug", action="store_true", help="override config and switch on debug mode")
-parser.add_argument("--notdebug", action="store_true", help="override config and switch off debug mode")
-parser.add_argument("--deleteattachments", action="store_true", help="override config and delete attachments")
-parser.add_argument("--notdeleteattachments", action="store_true", help="override config and do not delete attachments")
 
 args=parser.parse_args()
+
+if args.data_dir:
+    data_dir = args.data_dir
+    data_dir = os.path.join(data_dir, '')
+
+data_dir = os.path.expandvars(data_dir)
+
+if not os.path.exists(data_dir):
+    try:
+        os.makedirs(data_dir)
+    except OSError as error:
+        print(error, file=sys.stderr)
+        print("Configuration error -- " + data_dir + " must have read/write access", file=sys.stderr)
+    try:
+        f = open(data_dir + 'config.ini', 'w')
+        f.close()
+        print("Configuration error -- " + data_dir + "config.ini is empty", file=sys.stderr)
+        raise SystemExit(1)
+    except OSError as error:
+        print(error, file=sys.stderr)
+        print("Configuration error -- " + data_dir + " must have read/write access", file=sys.stderr)
+        raise SystemExit(1)
+
+
+config = configparser.ConfigParser()
+config.optionxform = lambda option: option # otherwise its lowercase only
+
+config.read(data_dir + 'config.ini')
+#mandatory config variables
+try:
+    signalnumber = config['SIGNAL']['signalnumber']
+    mailfrom = config['MAIL']['mailfrom']
+    mailsubject = config['MAIL']['mailsubject']
+    addr_list = config['MAIL']['addr_list']
+    smtpserver = config['MAIL']['smtpserver']
+    smtpuser = config['MAIL']['smtpuser']
+    smtppassword = config['MAIL']['smtppassword']
+except KeyError:
+    print("Configuration error -- " + data_dir + "config.ini incomplete", file=sys.stderr)
+
+#optional config variables, with defaults
+debug = False
+try:
+    debug = config['SWITCHES'].getboolean('debug')
+except KeyError: True
+
+sendmail = True
+try:
+    sendmail = config['SWITCHES'].getboolean('sendmail')
+except KeyError: True
+
+deleteattachments = True
+try:
+    deleteattachments = config['SWITCHES'].getboolean('deleteattachments') 
+except KeyError: True
+
+signalgroupid = ""
+try:
+    signalgroupid = config['SIGNAL']['signalgroupid']
+except KeyError: True
+
+signal_cli_path = os.path.join('usr', 'local', 'bin', 'signal-cli', '')
+try:
+    signal_cli_path = config['SIGNAL']['signal_cli_path']
+except KeyError: True
+
+signalconfigpath = os.path.join('$HOME', '.local', 'share', 'signal-cli','')
+try:
+    signalconfigpath = config['SIGNAL']['signalconfigpath']
+except KeyError: True
+
+smtpport = 587
+try:
+    smtpport = config['MAIL']['smtpport']
+except KeyError: True
+
+max_attachmentsize = 5
+try:
+    max_attachmentsize = config['MAIL']['max_attachmentsize']
+except KeyError: True
+
+autoreply = ""
+try:
+    autoreply = config['OTHER']['autoreply']
+except KeyError: True
+
+contacts = []
+try:
+    contacts = config.items("CONTACTS")
+except KeyError: True
+    
+attachmentpath = os.path.join(os.path.expandvars(signalconfigpath), "attachments")
+
+
 # override config if asked to do so:
-if args.sendmail: sendmail = True
-if args.notsendmail: sendmail = False
+if args.no_sendmail: sendmail = False
 if args.debug: debug = True
-if args.notdebug: debug = False
-if args.deleteattachments: deleteattachments = True
-if args.notdeleteattachments: deleteattachments = False
+if args.keep_attachments: deleteattachments = False
+
 
 # main program:
 def main():
     if debug: print("DEBUG - main(): called")
     print("signalmail v" + version + ", Timestamp: " + str(datetime.datetime.now()), file=sys.stderr)
     if debug: print("Switch settings: debug = " + str(debug) +  ", sendmail = " + str(sendmail) + ", deleteattachments = " + str(deleteattachments))
-
+    if debug: print("data_dir=",data_dir)
 
     bus = SessionBus()
     loop = GLib.MainLoop()

@@ -6,12 +6,9 @@ signalmail is a Python script adapted from signalbot using DBus but with a more 
 
 You may pass the following arguments to signalbot.py to overwrite defaults set in config.ini:
 
-- `--sendmail` override config and send mail
-- `--notsendmail` override config and do not send mail
+- `--no-sendmail` override config and do not send mail
 - `--debug` override config and switch on debug mode
-- `--notdebug` override config and switch off debug mode
-- `--deleteattachments` override config and delete attachments after processing
-- `--notdeleteattachments` override config and keep attachments after processing
+- `--keepattachments` override config and keep attachments after processing
 
 ## Known issues
 
@@ -21,7 +18,4 @@ You may pass the following arguments to signalbot.py to overwrite defaults set i
 
 - add possibility to choose between multiple groups to be forwarded to different recipients
 
-## Changelog
-
-- 0.7.0   - first quick and dirty implementation (bumping version from signalbot to avoid conflict)
 
