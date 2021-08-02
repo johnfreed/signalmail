@@ -160,19 +160,12 @@ def main():
         if autoattach: print("autoattach = " + autoattach)
     if debug: print("data_dir=",data_dir)
 
-    try:
-        bus = SessionBus()
-        if debug: print("Using session DBus")
-    except:
-        try:
-            bus = SystemBus()
-            if debug: print("Using system DBus")
-        except:
-            print("DBus error -- did you start signal-cli in daemon mode?", file=sys.stderr)
-            raise SystemExit(1)
 
     loop = GLib.MainLoop()
+
     try:
+        if debug: print("Trying session DBus")
+        bus = SessionBus()
         signal_client = bus.get('org.asamk.Signal')
     except:
         if debug: print("Could not connect to DBus using /org/asamk/Signal, trying alternative")
@@ -180,8 +173,14 @@ def main():
             signal_client = bus.get('org.asamk.Signal._' + signalnumber[1:])
         except:
             if debug: print("Could not connect to DBus using /org/asamk/Signal/_" + signalnumber[1:])
-            print("Daemon error -- did you remember to specify --username to signal-cli?", file=sys.stderr)
-            raise SystemExit(1)
+            try:
+                if debug: print("Trying system DBus")
+                bus = SystemBus()
+                signal_client = bus.get('org.asamk.Signal')
+
+            except:
+                print("Daemon error -- did you remember to specify --username to signal-cli and start it in daemon mode?", file=sys.stderr)
+                raise SystemExit(1)
 
     signal_client.onMessageReceived = msgRcv
     signal_client.onReceiptReceived = rcptRcv
