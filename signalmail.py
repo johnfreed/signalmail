@@ -26,6 +26,7 @@ import base64  # because DBus processor strips contentType
 import magic   # because DBus processor strips contentType
 
 from pydbus import SessionBus   # for DBus processing
+from pydbus import SystemBus   # for DBus processing
 from gi.repository import GLib  # for DBus processing
 
 data_dir = os.path.join("$HOME",".local","share","signalmail","")
@@ -39,6 +40,7 @@ parser.add_argument("--no-sendmail", dest="no_sendmail", action="store_true", he
 parser.add_argument("--keep-attachments", dest="keep_attachments", action="store_true", help="override config and keep attachments")
 parser.add_argument("--data-dir", dest="data_dir", help="set data directory (default: " + data_dir+ ")")
 parser.add_argument("--debug", action="store_true", help="override config and switch on debug mode")
+parser.add_argument("--no-autoreply", dest="no_autoreply", action="store_true", help="override config and do not send autoreply")
 
 args=parser.parse_args()
 
@@ -53,7 +55,8 @@ if not os.path.exists(data_dir):
         os.makedirs(data_dir)
     except OSError as error:
         print(error, file=sys.stderr)
-        print("Configuration error -- " + data_dir + " must have read/write access", file=sys.stderr)
+        print("Configuration error -- failed to create directory " + data_dir, file=sys.stderr)
+        raise SystemExit(1)
     try:
         f = open(data_dir + 'config.ini', 'w')
         f.close()
@@ -66,7 +69,7 @@ if not os.path.exists(data_dir):
 
 
 config = configparser.ConfigParser()
-config.optionxform = lambda option: option # otherwise its lowercase only
+config.optionxform = lambda option: option # otherwise it's lowercase only
 
 config.read(data_dir + 'config.ini')
 #mandatory config variables
@@ -127,6 +130,11 @@ try:
     autoreply = config['OTHER']['autoreply']
 except KeyError: True
 
+autoattach = ""
+try:
+    autoattach = config['OTHER']['autoattach']
+except KeyError: True
+
 contacts = []
 try:
     contacts = config.items("CONTACTS")
@@ -139,19 +147,41 @@ attachmentpath = os.path.join(os.path.expandvars(signalconfigpath), "attachments
 if args.no_sendmail: sendmail = False
 if args.debug: debug = True
 if args.keep_attachments: deleteattachments = False
-
+if args.no_autoreply: autoreply=""
 
 # main program:
 def main():
     if debug: print("DEBUG - main(): called")
-    print("signalmail v" + version + ", Timestamp: " + str(datetime.datetime.now()), file=sys.stderr)
+    if debug: print("signalmail v" + version + ", Timestamp: " + str(datetime.datetime.now()), file=sys.stderr)
     if debug: print("Switch settings: debug = " + str(debug) +  ", sendmail = " + str(sendmail) + ", deleteattachments = " + str(deleteattachments))
+    if debug:
+        if autoreply: print("autoreply=" + autoreply)
+    if debug:
+        if autoattach: print("autoattach = " + autoattach)
     if debug: print("data_dir=",data_dir)
 
-    bus = SessionBus()
-    loop = GLib.MainLoop()
+    try:
+        bus = SessionBus()
+        if debug: print("Using session DBus")
+    except:
+        try:
+            bus = SystemBus()
+            if debug: print("Using system DBus")
+        except:
+            print("DBus error -- did you start signal-cli in daemon mode?", file=sys.stderr)
+            raise SystemExit(1)
 
-    signal_client = bus.get('org.asamk.Signal')
+    loop = GLib.MainLoop()
+    try:
+        signal_client = bus.get('org.asamk.Signal')
+    except:
+        if debug: print("Could not connect to DBus using /org/asamk/Signal, trying alternative")
+        try:
+            signal_client = bus.get('org.asamk.Signal._' + signalnumber[1:])
+        except:
+            if debug: print("Could not connect to DBus using /org/asamk/Signal/_" + signalnumber[1:])
+            print("Daemon error -- did you remember to specify --username to signal-cli?", file=sys.stderr)
+            raise SystemExit(1)
 
     signal_client.onMessageReceived = msgRcv
     signal_client.onReceiptReceived = rcptRcv
@@ -171,7 +201,9 @@ def msgRcv (timestamp, sender, groupId, message, attachmentlist):
     if autoreply and sender:
         bus = SessionBus()
         signal_client = bus.get('org.asamk.Signal')
-        signal_client.sendMessage(autoreply, [], sender)
+        if debug:
+            print("DEBUG - msgRcv(): sending autoreply " + autoreply + " and attachment " + autoattach + " to sender " + sender)
+        signal_client.sendMessage(autoreply, [autoattach], sender)
         
     sendername = "unknown"
 
@@ -266,7 +298,7 @@ def sendemail(from_addr, addr_list, subject, message, attachmentlist, timestamp,
         else:
             if debug: print("DEBUG - messagehandler(): Attachment size of ", attachmentsize, " bigger than maximum size of ", max_attachmentsize, "MB, skipping!", sep='')
                
-    # sending the mail:
+    # send the email to SMTP server:
     server = smtplib.SMTP(server, port, timeout=10)
     if debug: server.set_debuglevel(1)
     server.starttls()
