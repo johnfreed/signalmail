@@ -14,7 +14,15 @@ You may pass the following arguments to signalbot.py to overwrite defaults set i
 
 ## Known issues
 
-- users are untrusted if they reinstall Signal and therefore messages don't come through. As a workaround you can manually trust the new key using signal-cli: `signal-cli -u yourNumber trust -a untrustedNumber`
+- users are untrusted if they reinstall Signal and therefore messages 
+  don't come through. See https://github.com/AsamK/signal-cli/wiki/Manage-trusted-keys 
+
+  As a workaround using signal-cli:
+	- If you don't care about security, you can manually trust the new key   
+   `signal-cli -u yourNumber trust -a untrustedNumber`
+	- Better is to verify it with the remote number's SAFETY_NUMBER  
+   `signal-cli -u yourNumber trust -v SAFETY_NUMBER -a untrustedNumber`
+
 
 ## ToDos
 
