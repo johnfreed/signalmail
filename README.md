@@ -9,6 +9,8 @@ You may pass the following arguments to signalbot.py to overwrite defaults set i
 - `--no-sendmail` override config and do not send mail
 - `--debug` override config and switch on debug mode
 - `--keepattachments` override config and keep attachments after processing
+- `--autoreply` text of a reply to each incoming Signal message
+- `--autoattach` path to file to send as attachment with autoreply
 
 ## Known issues
 
@@ -17,5 +19,5 @@ You may pass the following arguments to signalbot.py to overwrite defaults set i
 ## ToDos
 
 - add possibility to choose between multiple groups to be forwarded to different recipients
-
+- get System DBus connection working
 

@@ -7,7 +7,7 @@
 
 
 ##########################
-version = "0.7.1"
+version = "0.7.2"
 ##########################
 
 
@@ -28,6 +28,8 @@ import magic   # because DBus processor strips contentType
 from pydbus import SessionBus   # for DBus processing
 from pydbus import SystemBus   # for DBus processing
 from gi.repository import GLib  # for DBus processing
+
+from functools import singledispatch
 
 data_dir = os.path.join("$HOME",".local","share","signalmail","")
 
@@ -83,6 +85,7 @@ try:
     smtppassword = config['MAIL']['smtppassword']
 except KeyError:
     print("Configuration error -- " + data_dir + "config.ini incomplete", file=sys.stderr)
+    raise SystemExit(1)
 
 #optional config variables, with defaults
 debug = False
@@ -140,7 +143,7 @@ try:
     contacts = config.items("CONTACTS")
 except KeyError: True
     
-attachmentpath = os.path.join(os.path.expandvars(signalconfigpath), "attachments")
+attachmentpath = os.path.join(os.path.expandvars(signalconfigpath), "attachments", "")
 
 
 # override config if asked to do so:
@@ -149,10 +152,77 @@ if args.debug: debug = True
 if args.keep_attachments: deleteattachments = False
 if args.no_autoreply: autoreply=""
 
+
+@singledispatch
+def get_attachmentFile(rawattachment):
+    print("Attachment type unknown", file=sys.stderr)
+    raise SystemExit(1)
+    return
+@get_attachmentFile.register
+def _(arg: tuple, verbose=False):
+    attachmentFile = attachmentpath + arg[2]
+    return attachmentFile
+@get_attachmentFile.register
+def _(arg: str, verbose=False):
+    attachmentFile = arg
+    return attachmentFile
+#end get_attachmentFile(rawattachment):
+
+@singledispatch
+def get_attachmentContentType(rawattachment):
+    return attachmentContentType, raw_data
+@get_attachmentContentType.register
+def _(arg: tuple, verbose=False):
+    attachmentContentType = arg[0]
+    fp = open(get_attachmentFile(arg), 'rb') #open in binary format
+    raw_data = fp.read()
+    fp.close()
+    return attachmentContentType, raw_data
+@get_attachmentContentType.register
+def _(arg: str, verbose=False):
+    fp = open(get_attachmentFile(arg), 'rb') #open in binary format
+    raw_data = fp.read()
+    fp.close()
+    # .. try to find out MIME type and process it properly
+    if debug: print("Guess MIME type of file '" + get_attachmentFile(arg) + "'")
+    mime = magic.Magic(mime=True)
+    ctype = mime.from_buffer(raw_data)
+    if debug: print("ctype: ", ctype)
+    if ctype is None:
+        ctype = "application/octet-stream"
+    return ctype, raw_data
+#end get_attachmentContentType(rawattachment):
+
+@singledispatch
+def get_attachmentFileSize(rawattachment):
+    return
+@get_attachmentFileSize.register
+def _(arg: tuple, verbose=False):
+    attachmentFileSize = float(arg[3])
+    return attachmentFileSize
+@get_attachmentFileSize.register
+def _(arg: str, verbose=False):
+    attachmentFileSize = float(os.path.getsize(arg))
+    return attachmentFileSize
+#end get_attachmentFileSize(rawattachment):
+
+@singledispatch
+def get_attachmentRemoteName(rawattachment):
+    return
+@get_attachmentRemoteName.register
+def _(arg: tuple, verbose=False):
+    attachmentRemoteName = arg[1]
+    return attachmentRemoteName
+@get_attachmentRemoteName.register
+def _(arg: str, verbose=False):
+    attachmentRemoteName = ""
+    return attachmentRemoteName
+#end get_attachmentFileSize(rawattachment):
+
 # main program:
 def main():
     if debug: print("DEBUG - main(): called")
-    if debug: print("signalmail v" + version + ", Timestamp: " + str(datetime.datetime.now()), file=sys.stderr)
+    if debug: print("signalmail v" + version + ", Timestamp: " + str(datetime.datetime.now()))
     if debug: print("Switch settings: debug = " + str(debug) +  ", sendmail = " + str(sendmail) + ", deleteattachments = " + str(deleteattachments))
     if debug:
         if autoreply: print("autoreply=" + autoreply)
@@ -189,7 +259,6 @@ def main():
     loop.run()
 
 
-    print("\n#### Everything done. ####\n\n", file=sys.stderr)
     if debug: print("DEBUG - main(): finished")
 # end main()
 
@@ -202,8 +271,13 @@ def msgRcv (timestamp, sender, groupId, message, attachmentlist):
         signal_client = bus.get('org.asamk.Signal')
         if debug:
             print("DEBUG - msgRcv(): sending autoreply " + autoreply + " and attachment " + autoattach + " to sender " + sender)
-        signal_client.sendMessage(autoreply, [autoattach], sender)
-        
+        try:
+            signal_client.sendMessage(autoreply, [autoattach], sender)
+        except:
+            if debug: print("Cannot send autoreply")
+            if debug: print("autoreply: " + autoreply)
+            if debug: print("autoattach: " + autoattach)
+
     sendername = "unknown"
 
     # contacts lookup:
@@ -222,13 +296,13 @@ def msgRcv (timestamp, sender, groupId, message, attachmentlist):
     timestamp = datetime.datetime.utcfromtimestamp(float(str(timestamp)[0:-3]))
 
     mailtext = "New Signal message from " + str(sendername) + " (" +str(sender) + "), sent " + str(timestamp) + " ...\n" + message + "\n\n"
-    print("## Message :", file=sys.stderr)
-    print(mailtext, file=sys.stderr)
-    print("## end of message", file=sys.stderr)
+    if debug: print("## Message :")
+    if debug: print(mailtext)
+    if debug: print("## end of message")
 
     # send mail if activated:
     if sendmail == True:
-        print("\nsignalmail is sending emails", file=sys.stderr)
+        if debug: print("\nsignalmail is sending emails")
         sendemail(from_addr    = mailfrom,
               addr_list = addr_list,
               subject      = mailsubject,
@@ -239,15 +313,16 @@ def msgRcv (timestamp, sender, groupId, message, attachmentlist):
               password     = smtppassword,
               server       = smtpserver,
               port         = smtpport )
-    else: print("\nsignalmail is not sending emails", file=sys.stderr)
+    else:
+        if debug: print("\nsignalmail is not sending emails")
 
     # deleting attachments if requested:
     if attachmentlist and deleteattachments:
         if debug: print("DEBUG - main(): removing attachments")
-        for attachment in attachmentlist:
+        for rawattachment in attachmentlist:
+            attachment = get_attachmentFile(rawattachment)
             if debug: print("DEBUG - main(): removing attachment " + attachment)
             os.remove(attachment) 
-
     return
 
 def rcptRcv (timestamp, sender):
@@ -273,26 +348,19 @@ def sendemail(from_addr, addr_list, subject, message, attachmentlist, timestamp,
     msg["Subject"] = subject
     msg.set_content(message)
 
-    for attachment in attachmentlist:
+    for rawattachment in attachmentlist:
+        attachment = get_attachmentFile(rawattachment)
         # check for size limit before proceeding:
-        attachmentsize = float(os.path.getsize(attachment)) / 1024.0 / 1024.0
-        if attachmentsize <= float(max_attachmentsize):                      
-            # .. try to find out MIME type and process it properly
-            if debug: print("Guess MIME type of file '" + attachment + "'")
-            fp = open(attachment, 'rb') #open in binary format
-            raw_data = fp.read()
-            fp.close()
-            mime = magic.Magic(mime=True)
-            ctype = mime.from_buffer(raw_data)
-            
-            if debug: print("ctype: ", ctype)
-            if ctype is None:
-                ctype = "application/octet-stream"
-
+        attachmentsize =  get_attachmentFileSize(rawattachment) / 1024.0 / 1024.0
+        if debug: print("DEBUG - sendemail(): attachmentsize=",attachmentsize,"MB")
+        if attachmentsize <= float(max_attachmentsize):
+            ctype, raw_data = get_attachmentContentType(rawattachment)
+            if debug: print("DEBUG - sendemail(): ctype=",ctype)
             maintype, subtype = ctype.split("/", 1)
             ext = mimetypes.guess_extension(ctype, strict=False)
-             
-            filename = os.path.basename(attachment) + ext
+            filename = get_attachmentRemoteName(rawattachment)
+            if filename == "":
+                filename = os.path.basename(attachment) + ext
             msg.add_attachment(raw_data, maintype=maintype, subtype=subtype, filename=filename)
         else:
             if debug: print("DEBUG - messagehandler(): Attachment size of ", attachmentsize, " bigger than maximum size of ", max_attachmentsize, "MB, skipping!", sep='')
