@@ -12,7 +12,7 @@ version = "0.7.2"
 
 
 import sys
-import os 
+import os
 import argparse # argument parser
 import json # for json handling
 import configparser # for config file
@@ -43,6 +43,7 @@ parser.add_argument("--keep-attachments", dest="keep_attachments", action="store
 parser.add_argument("--data-dir", dest="data_dir", help="set data directory (default: " + data_dir+ ")")
 parser.add_argument("--debug", action="store_true", help="override config and switch on debug mode")
 parser.add_argument("--no-autoreply", dest="no_autoreply", action="store_true", help="override config and do not send autoreply")
+parser.add_argument("--system", dest="system", action="store_true", help="override config and use system DBus")
 
 args=parser.parse_args()
 
@@ -68,7 +69,6 @@ if not os.path.exists(data_dir):
         print(error, file=sys.stderr)
         print("Configuration error -- " + data_dir + " must have read/write access", file=sys.stderr)
         raise SystemExit(1)
-
 
 config = configparser.ConfigParser()
 config.optionxform = lambda option: option # otherwise it's lowercase only
@@ -100,7 +100,12 @@ except KeyError: True
 
 deleteattachments = True
 try:
-    deleteattachments = config['SWITCHES'].getboolean('deleteattachments') 
+    deleteattachments = config['SWITCHES'].getboolean('deleteattachments')
+except KeyError: True
+
+sessiondbus = True
+try:
+    sessiondbus = config['SWITCHES'].getboolean('sessiondbus')
 except KeyError: True
 
 signalgroupid = ""
@@ -142,7 +147,7 @@ contacts = []
 try:
     contacts = config.items("CONTACTS")
 except KeyError: True
-    
+
 attachmentpath = os.path.join(os.path.expandvars(signalconfigpath), "attachments", "")
 
 
@@ -151,79 +156,14 @@ if args.no_sendmail: sendmail = False
 if args.debug: debug = True
 if args.keep_attachments: deleteattachments = False
 if args.no_autoreply: autoreply=""
+if args.system: sessiondbus = False
 
-
-@singledispatch
-def get_attachmentFile(rawattachment):
-    print("Attachment type unknown", file=sys.stderr)
-    raise SystemExit(1)
-    return
-@get_attachmentFile.register
-def _(arg: tuple, verbose=False):
-    attachmentFile = attachmentpath + arg[2]
-    return attachmentFile
-@get_attachmentFile.register
-def _(arg: str, verbose=False):
-    attachmentFile = arg
-    return attachmentFile
-#end get_attachmentFile(rawattachment):
-
-@singledispatch
-def get_attachmentContentType(rawattachment):
-    return attachmentContentType, raw_data
-@get_attachmentContentType.register
-def _(arg: tuple, verbose=False):
-    attachmentContentType = arg[0]
-    fp = open(get_attachmentFile(arg), 'rb') #open in binary format
-    raw_data = fp.read()
-    fp.close()
-    return attachmentContentType, raw_data
-@get_attachmentContentType.register
-def _(arg: str, verbose=False):
-    fp = open(get_attachmentFile(arg), 'rb') #open in binary format
-    raw_data = fp.read()
-    fp.close()
-    # .. try to find out MIME type and process it properly
-    if debug: print("Guess MIME type of file '" + get_attachmentFile(arg) + "'")
-    mime = magic.Magic(mime=True)
-    ctype = mime.from_buffer(raw_data)
-    if debug: print("ctype: ", ctype)
-    if ctype is None:
-        ctype = "application/octet-stream"
-    return ctype, raw_data
-#end get_attachmentContentType(rawattachment):
-
-@singledispatch
-def get_attachmentFileSize(rawattachment):
-    return
-@get_attachmentFileSize.register
-def _(arg: tuple, verbose=False):
-    attachmentFileSize = float(arg[3])
-    return attachmentFileSize
-@get_attachmentFileSize.register
-def _(arg: str, verbose=False):
-    attachmentFileSize = float(os.path.getsize(arg))
-    return attachmentFileSize
-#end get_attachmentFileSize(rawattachment):
-
-@singledispatch
-def get_attachmentRemoteName(rawattachment):
-    return
-@get_attachmentRemoteName.register
-def _(arg: tuple, verbose=False):
-    attachmentRemoteName = arg[1]
-    return attachmentRemoteName
-@get_attachmentRemoteName.register
-def _(arg: str, verbose=False):
-    attachmentRemoteName = ""
-    return attachmentRemoteName
-#end get_attachmentFileSize(rawattachment):
 
 # main program:
 def main():
     if debug: print("DEBUG - main(): called")
     if debug: print("signalmail v" + version + ", Timestamp: " + str(datetime.datetime.now()))
-    if debug: print("Switch settings: debug = " + str(debug) +  ", sendmail = " + str(sendmail) + ", deleteattachments = " + str(deleteattachments))
+    if debug: print("Switch settings: debug = " + str(debug) +  ", sendmail = " + str(sendmail) + ", deleteattachments = " + str(deleteattachments) + ", sessiondbus = " + str(sessiondbus))
     if debug:
         if autoreply: print("autoreply=" + autoreply)
     if debug:
@@ -233,24 +173,7 @@ def main():
 
     loop = GLib.MainLoop()
 
-    try:
-        if debug: print("Trying session DBus")
-        bus = SessionBus()
-        signal_client = bus.get('org.asamk.Signal')
-    except:
-        if debug: print("Could not connect to DBus using /org/asamk/Signal, trying alternative")
-        try:
-            signal_client = bus.get('org.asamk.Signal._' + signalnumber[1:])
-        except:
-            if debug: print("Could not connect to DBus using /org/asamk/Signal/_" + signalnumber[1:])
-            try:
-                if debug: print("Trying system DBus")
-                bus = SystemBus()
-                signal_client = bus.get('org.asamk.Signal')
-
-            except:
-                print("Daemon error -- did you remember to specify --username to signal-cli and start it in daemon mode?", file=sys.stderr)
-                raise SystemExit(1)
+    signal_client = connectToDBus();
 
     signal_client.onMessageReceived = msgRcv
     signal_client.onReceiptReceived = rcptRcv
@@ -267,16 +190,17 @@ def msgRcv (timestamp, sender, groupId, message, attachmentlist):
     if debug: print("timestamp: ", timestamp, " sender: ", sender, " groupId: ", groupId, " message: ", message, " attachmentlist: ", attachmentlist)
 
     if autoreply and sender:
-        bus = SessionBus()
-        signal_client = bus.get('org.asamk.Signal')
+        signal_client = connectToDBus();
+
         if debug:
             print("DEBUG - msgRcv(): sending autoreply " + autoreply + " and attachment " + autoattach + " to sender " + sender)
         try:
             signal_client.sendMessage(autoreply, [autoattach], sender)
-        except:
-            if debug: print("Cannot send autoreply")
-            if debug: print("autoreply: " + autoreply)
-            if debug: print("autoattach: " + autoattach)
+        except Exception as e:
+            print("Unexpected error:", sys.exc_info()[0])
+            print("Cannot send autoreply", file=sys.stderr)
+            print(e, " ", type(e), file=sys.stderr)
+            print("signal-desktop might be running")
 
     sendername = "unknown"
 
@@ -322,7 +246,7 @@ def msgRcv (timestamp, sender, groupId, message, attachmentlist):
         for rawattachment in attachmentlist:
             attachment = get_attachmentFile(rawattachment)
             if debug: print("DEBUG - main(): removing attachment " + attachment)
-            os.remove(attachment) 
+            os.remove(attachment)
     return
 
 def rcptRcv (timestamp, sender):
@@ -364,7 +288,7 @@ def sendemail(from_addr, addr_list, subject, message, attachmentlist, timestamp,
             msg.add_attachment(raw_data, maintype=maintype, subtype=subtype, filename=filename)
         else:
             if debug: print("DEBUG - messagehandler(): Attachment size of ", attachmentsize, " bigger than maximum size of ", max_attachmentsize, "MB, skipping!", sep='')
-               
+
     # send the email to SMTP server:
     server = smtplib.SMTP(server, port, timeout=10)
     if debug: server.set_debuglevel(1)
@@ -387,6 +311,100 @@ def dt_parse(t):
     if debug: print("DEBUG - dt_parse(): finished")
     return ret
 #end dt_parse(t):
+
+def connectToDBus():
+    if sessiondbus:
+        try:
+            bus = SessionBus()
+            signal_client = bus.get('org.asamk.Signal')
+            if debug: print("Using session DBus")
+        except:
+            if debug: print("Could not connect to DBus using /org/asamk/Signal, trying alternative")
+            try:
+                signal_client = bus.get('org.asamk.Signal._' + signalnumber[1:])
+                if debug: print("Using session DBus for ", signalnumber)
+            except:
+                if debug: print("Could not connect to DBus using /org/asamk/Signal/_" + signalnumber[1:] + ", trying alternative")
+                print("Daemon error -- did you remember to specify --username to signal-cli and start it in daemon mode?", file=sys.stderr)
+                raise SystemExit(1)
+    else:
+        try:
+            bus = SystemBus()
+            signal_client = bus.get('org.asamk.Signal')
+            if debug: print("Using system DBus")
+        except:
+            if debug: print("Could not connect to system DBus")
+            print("Daemon error -- did you remember to specify --system to signal-cli and start it in daemon mode?", file=sys.stderr)
+            raise SystemExit(1)
+    return signal_client
+#end connectToDBus():
+
+@singledispatch
+def get_attachmentFile(rawattachment):
+    print("Attachment type unknown", file=sys.stderr)
+    raise SystemExit(1)
+    return
+@get_attachmentFile.register
+def _(arg: tuple, verbose=False):
+    attachmentFile = attachmentpath + arg[2]
+    return attachmentFile
+@get_attachmentFile.register
+def _(arg: str, verbose=False):
+    attachmentFile = arg
+    return attachmentFile
+#end get_attachmentFile(rawattachment):
+
+@singledispatch
+def get_attachmentContentType(rawattachment):
+    return attachmentContentType, raw_data
+@get_attachmentContentType.register
+def _(arg: tuple, verbose=False):
+    attachmentContentType = arg[0]
+    if debug: print("Content-type: " + attachmentContentType)
+    fp = open(get_attachmentFile(arg), 'rb') #open in binary format
+    raw_data = fp.read()
+    fp.close()
+    return attachmentContentType, raw_data
+@get_attachmentContentType.register
+def _(arg: str, verbose=False):
+    fp = open(get_attachmentFile(arg), 'rb') #open in binary format
+    raw_data = fp.read()
+    fp.close()
+    # .. try to find out MIME type and process it properly
+    if debug: print("Guess MIME type of file '" + get_attachmentFile(arg) + "'")
+    mime = magic.Magic(mime=True)
+    ctype = mime.from_buffer(raw_data)
+    if debug: print("ctype: ", ctype)
+    if ctype is None:
+        ctype = "application/octet-stream"
+    return ctype, raw_data
+#end get_attachmentContentType(rawattachment):
+
+@singledispatch
+def get_attachmentFileSize(rawattachment):
+    return
+@get_attachmentFileSize.register
+def _(arg: tuple, verbose=False):
+    attachmentFileSize = float(arg[3])
+    return attachmentFileSize
+@get_attachmentFileSize.register
+def _(arg: str, verbose=False):
+    attachmentFileSize = float(os.path.getsize(arg))
+    return attachmentFileSize
+#end get_attachmentFileSize(rawattachment):
+
+@singledispatch
+def get_attachmentRemoteName(rawattachment):
+    return
+@get_attachmentRemoteName.register
+def _(arg: tuple, verbose=False):
+    attachmentRemoteName = arg[1]
+    return attachmentRemoteName
+@get_attachmentRemoteName.register
+def _(arg: str, verbose=False):
+    attachmentRemoteName = ""
+    return attachmentRemoteName
+#end get_attachmentFileSize(rawattachment):
 
 if __name__ == '__main__':
     main()
