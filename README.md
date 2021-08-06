@@ -1,10 +1,14 @@
 # signalmail
 
-signalmail is a Python script adapted from signalbot using DBus but with a more specific focus: forwarding Signal messages via Email. It's relying on signal-cli (https://github.com/AsamK/signal-cli) in daemon mode to fetch the actual messages. Configuration is done in by copying config_default.ini to $HOME/.local/share/signalmail/config.ini and modifying it.
+signalmail is a Python script to forward Signal messages via Email. It 
+relies on signal-cli (`https://github.com/AsamK/signal-cli`) running in 
+daemon mode to fetch the actual messages. Configuration is done in by 
+copying config_default.ini to $HOME/.local/share/signalmail/config.ini and 
+modifying it.
 
 ## CLI arguments
 
-You may pass the following arguments to signalbot.py to overwrite defaults set in config.ini:
+You may pass the following arguments to `signalbot.py`:
 
 - `--no-sendmail` override config and do not send mail
 - `--debug` override config and switch on debug mode
