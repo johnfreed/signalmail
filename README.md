@@ -11,6 +11,7 @@ You may pass the following arguments to signalbot.py to overwrite defaults set i
 - `--keepattachments` override config and keep attachments after processing
 - `--autoreply` text of a reply to each incoming Signal message
 - `--autoattach` path to file to send as attachment with autoreply
+- `--system` override config and use system DBus
 
 ## Known issues
 
@@ -27,5 +28,4 @@ You may pass the following arguments to signalbot.py to overwrite defaults set i
 ## ToDos
 
 - add possibility to choose between multiple groups to be forwarded to different recipients
-- get System DBus connection working
 
