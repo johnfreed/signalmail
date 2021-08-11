@@ -1,10 +1,21 @@
 # signalmail
 
-signalmail is a Python script to forward Signal messages via Email. It 
+signalmail is a Python script to forward Signal messages via email. It 
 relies on signal-cli (`https://github.com/AsamK/signal-cli`) running in 
 daemon mode to fetch the actual messages. Configuration is done in by 
 copying config_default.ini to $HOME/.local/share/signalmail/config.ini and 
 modifying it.
+
+Please note that messages are NOT END-TO-END ENCRYPTED. Signalmail is an 
+UNOFFICIAL program that does not connect directly to the Signal servers. 
+Messages and attachments are sent "in the clear" via DBus on the local 
+computer, so signalmail relies on DBus security to protect your message. 
+Further, signal-cli is an UNOFFICIAL client that does connect directly to 
+the Signal servers. It is signal-cli that encrypts and decrypts the 
+messages.
+
+Finally, forwarding the message via email is inherently insecure, using 
+the SMTP protocol. 
 
 ## CLI arguments
 
