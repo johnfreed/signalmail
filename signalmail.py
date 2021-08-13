@@ -150,6 +150,8 @@ except KeyError: True
 
 attachmentpath = os.path.join(os.path.expandvars(signalconfigpath), "attachments", "")
 
+#global flag to prevent double-calling if we are using V2 of the API
+APIV2 = False
 
 # override config if asked to do so:
 if args.no_sendmail: sendmail = False
@@ -158,6 +160,7 @@ if args.keep_attachments: deleteattachments = False
 if args.no_autoreply: autoreply=""
 if args.system: sessiondbus = False
 
+if debug: print("startup: APIV2 is",APIV2)
 
 # main program:
 def main():
@@ -176,9 +179,9 @@ def main():
     signal_client = connectToDBus();
 
     signal_client.onMessageReceivedV2 = msgRcv2
-#    signal_client.onMessageReceived = msgRcv
+    signal_client.onMessageReceived = msgRcv
     signal_client.onReceiptReceived = rcptRcv
-    signal_client.onSyncMessageReceivedV2 = syncRcv
+    signal_client.onSyncMessageReceived = syncRcv
 
     loop.run()
 
@@ -187,14 +190,19 @@ def main():
 # end main()
 
 def msgRcv (timestamp, sender, groupId, message, attachmentList):
+    global APIV2
+    if APIV2: return
     if debug: print("msgRcv called")
     if debug: print("timestamp: ", timestamp, " sender: ", sender, " groupId: ", groupId, " message: ", message, " attachmentList: ", attachmentList)
     msgRcv2 (timestamp, sender, groupId, message, [], attachmentList)
 
 def msgRcv2 (timestamp, sender, groupId, message, mentionList, attachmentList):
+    global APIV2
     if debug: print("msgRcv2 called")
     if debug: print("timestamp: ", timestamp, " sender: ", sender, " groupId: ", groupId, " message: ", message, " attachmentList: ", attachmentList)
-    if debug: print("mentionList: ", mentionList);
+    if debug: print("mentionList: ", mentionList)
+
+    APIV2 = True
 
     if autoreply and sender:
         signal_client = connectToDBus();
