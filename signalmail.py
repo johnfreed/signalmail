@@ -235,17 +235,21 @@ def msgRcv2 (timestamp, sender, groupId, message, mentionList, attachmentList):
     #  or \xEF\xBF\xBC in UTF-8
     objectReplacementCharacter = b'\xEF\xBF\xBC'.decode("utf-8")
     if mentionList:
-        messageparts = message.split(objectReplacementCharacter)
-        i = 0;
-        message = messageparts[i];
-        signal_client = connectToDBus();
+        lastindex = 0
+        newmessage = ""
+        signal_client = connectToDBus()
         for mention in mentionList:
-            i = i + 1
-            number = mention[0];
-            position = mention[1];
-            name = signal_client.getContactName(number);
-            message += "@" + name + messageparts[i]
-            if debug: print("DEBUG - msgRcv2() building message:", message)
+            number = mention[0]
+            position = mention[1]
+            length = mention[2]
+            messagepart = message[lastindex:position]
+            name = signal_client.getContactName(number)
+            newmessage += messagepart + "@" + name
+            lastindex = position + length
+            if debug: print("DEBUG - msgRcv2() building message:", newmessage)
+        if (lastindex <= len(message)):
+            newmessage += message[lastindex:]    
+        message = newmessage
         if debug: print("DEBUG - msgRcv2() final message is:", message)
 
     # timestamp includes milliseconds, we have to strip them:
