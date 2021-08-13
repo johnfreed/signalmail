@@ -175,9 +175,10 @@ def main():
 
     signal_client = connectToDBus();
 
-    signal_client.onMessageReceived = msgRcv
+    signal_client.onMessageReceivedV2 = msgRcv2
+#    signal_client.onMessageReceived = msgRcv
     signal_client.onReceiptReceived = rcptRcv
-    signal_client.onSyncMessageReceived = syncRcv
+    signal_client.onSyncMessageReceivedV2 = syncRcv
 
     loop.run()
 
@@ -185,15 +186,21 @@ def main():
     if debug: print("DEBUG - main(): finished")
 # end main()
 
-def msgRcv (timestamp, sender, groupId, message, attachmentlist):
+def msgRcv (timestamp, sender, groupId, message, attachmentList):
     if debug: print("msgRcv called")
-    if debug: print("timestamp: ", timestamp, " sender: ", sender, " groupId: ", groupId, " message: ", message, " attachmentlist: ", attachmentlist)
+    if debug: print("timestamp: ", timestamp, " sender: ", sender, " groupId: ", groupId, " message: ", message, " attachmentList: ", attachmentList)
+    msgRcv2 (timestamp, sender, groupId, message, [], attachmentList)
+
+def msgRcv2 (timestamp, sender, groupId, message, mentionList, attachmentList):
+    if debug: print("msgRcv2 called")
+    if debug: print("timestamp: ", timestamp, " sender: ", sender, " groupId: ", groupId, " message: ", message, " attachmentList: ", attachmentList)
+    if debug: print("mentionList: ", mentionList);
 
     if autoreply and sender:
         signal_client = connectToDBus();
 
         if debug:
-            print("DEBUG - msgRcv(): sending autoreply " + autoreply + " and attachment " + autoattach + " to sender " + sender)
+            print("DEBUG - msgRcv2(): sending autoreply " + autoreply + " and attachment " + autoattach + " to sender " + sender)
         try:
             signal_client.sendMessage(autoreply, [autoattach], sender)
         except Exception as e:
@@ -207,14 +214,31 @@ def msgRcv (timestamp, sender, groupId, message, attachmentlist):
     # contacts lookup:
     # check if number is known:
     if contacts:
-        if debug: print("DEBUG - msgRcv() - checking contacts")
+        if debug: print("DEBUG - msgRcv2() - checking contacts")
         for j, k in contacts:
             if j == sender: sendername = k
-        if debug: print("DEBUG - msgRcv() - Message - sender name: " + sendername)
+        if debug: print("DEBUG - msgRcv2() - Message - sender name: " + sendername)
 
     else:
-        if debug: print("DEBUG - msgRcv() - no contacts!")
+        if debug: print("DEBUG - msgRcv2() - no contacts!")
 
+    #expand mentions
+    #objectReplacementCharacter is Unicode U+FFFC
+    #  or \xEF\xBF\xBC in UTF-8
+    objectReplacementCharacter = b'\xEF\xBF\xBC'.decode("utf-8")
+    if mentionList:
+        messageparts = message.split(objectReplacementCharacter)
+        i = 0;
+        message = messageparts[i];
+        signal_client = connectToDBus();
+        for mention in mentionList:
+            i = i + 1
+            number = mention[0];
+            position = mention[1];
+            name = signal_client.getContactName(number);
+            message += "@" + name + messageparts[i]
+            if debug: print("DEBUG - msgRcv2() building message:", message)
+        if debug: print("DEBUG - msgRcv2() final message is:", message)
 
     # timestamp includes milliseconds, we have to strip them:
     timestamp = datetime.datetime.utcfromtimestamp(float(str(timestamp)[0:-3]))
@@ -231,7 +255,7 @@ def msgRcv (timestamp, sender, groupId, message, attachmentlist):
               addr_list = addr_list,
               subject      = mailsubject,
               message      = mailtext,
-              attachmentlist   = attachmentlist,
+              attachmentList   = attachmentList,
               timestamp    = timestamp,
               login        = smtpuser,
               password     = smtppassword,
@@ -241,13 +265,14 @@ def msgRcv (timestamp, sender, groupId, message, attachmentlist):
         if debug: print("\nsignalmail is not sending emails")
 
     # deleting attachments if requested:
-    if attachmentlist and deleteattachments:
+    if attachmentList and deleteattachments:
         if debug: print("DEBUG - main(): removing attachments")
-        for rawattachment in attachmentlist:
-            attachment = get_attachmentFile(rawattachment)
+        for rawAttachment in attachmentList:
+            attachment = get_attachmentFile(rawAttachment)
             if debug: print("DEBUG - main(): removing attachment " + attachment)
             os.remove(attachment)
     return
+#end msgRcv2
 
 def rcptRcv (timestamp, sender):
     if debug:
@@ -255,34 +280,34 @@ def rcptRcv (timestamp, sender):
         print (sender)
     return
 
-def syncRcv (timestamp, sender, destination, groupId, message, attachmentlist):
+def syncRcv (timestamp, sender, destination, groupId, message, attachmentList):
     if debug:
         print ("syncRcv called")
         print (sender)
     return
 
 # function handles sending of emails
-def sendemail(from_addr, addr_list, subject, message, attachmentlist, timestamp, login, password, server, port):
+def sendemail(from_addr, addr_list, subject, message, attachmentList, timestamp, login, password, server, port):
     if debug: print("DEBUG - sendemail(): called, login=" + login + " password=" + password + " server=" + server + " port=" + port + "\nMessage=", message)
-    if debug: print("DEBUG - sendemail(): attachmentlist=")
-    if debug: print(attachmentlist)
+    if debug: print("DEBUG - sendemail(): attachmentList=")
+    if debug: print(attachmentList)
     msg = EmailMessage()
     msg["From"] = from_addr
     msg["To"] = addr_list
     msg["Subject"] = subject
     msg.set_content(message)
 
-    for rawattachment in attachmentlist:
-        attachment = get_attachmentFile(rawattachment)
+    for rawAttachment in attachmentList:
+        attachment = get_attachmentFile(rawAttachment)
         # check for size limit before proceeding:
-        attachmentsize =  get_attachmentFileSize(rawattachment) / 1024.0 / 1024.0
+        attachmentsize =  get_attachmentFileSize(rawAttachment) / 1024.0 / 1024.0
         if debug: print("DEBUG - sendemail(): attachmentsize=",attachmentsize,"MB")
         if attachmentsize <= float(max_attachmentsize):
-            ctype, raw_data = get_attachmentContentType(rawattachment)
+            ctype, raw_data = get_attachmentContentType(rawAttachment)
             if debug: print("DEBUG - sendemail(): ctype=",ctype)
             maintype, subtype = ctype.split("/", 1)
             ext = mimetypes.guess_extension(ctype, strict=False)
-            filename = get_attachmentRemoteName(rawattachment)
+            filename = get_attachmentRemoteName(rawAttachment)
             if filename == "":
                 filename = os.path.basename(attachment) + ext
             msg.add_attachment(raw_data, maintype=maintype, subtype=subtype, filename=filename)
@@ -297,7 +322,7 @@ def sendemail(from_addr, addr_list, subject, message, attachmentlist, timestamp,
     server.sendmail(from_addr, addr_list.split(','), msg.as_string())
     server.quit()
     if debug: print("DEBUG - sendemail(): finished")
-#end sendemail(from_addr, addr_list, subject, message, attachmentlist, timestamp, login, password, server, port):
+#end sendemail(from_addr, addr_list, subject, message, attachmentList, timestamp, login, password, server, port):
 
 
 # this is a ugly workaround to convert timestamps in python < 3.2, see https://stackoverflow.com/questions/26165659/python-timezone-z-directive-for-datetime-strptime-not-available#26177579
@@ -340,7 +365,7 @@ def connectToDBus():
 #end connectToDBus():
 
 @singledispatch
-def get_attachmentFile(rawattachment):
+def get_attachmentFile(rawAttachment):
     print("Attachment type unknown", file=sys.stderr)
     raise SystemExit(1)
     return
@@ -352,10 +377,10 @@ def _(arg: tuple, verbose=False):
 def _(arg: str, verbose=False):
     attachmentFile = arg
     return attachmentFile
-#end get_attachmentFile(rawattachment):
+#end get_attachmentFile(rawAttachment):
 
 @singledispatch
-def get_attachmentContentType(rawattachment):
+def get_attachmentContentType(rawAttachment):
     return attachmentContentType, raw_data
 @get_attachmentContentType.register
 def _(arg: tuple, verbose=False):
@@ -378,10 +403,10 @@ def _(arg: str, verbose=False):
     if ctype is None:
         ctype = "application/octet-stream"
     return ctype, raw_data
-#end get_attachmentContentType(rawattachment):
+#end get_attachmentContentType(rawAttachment):
 
 @singledispatch
-def get_attachmentFileSize(rawattachment):
+def get_attachmentFileSize(rawAttachment):
     return
 @get_attachmentFileSize.register
 def _(arg: tuple, verbose=False):
@@ -391,10 +416,10 @@ def _(arg: tuple, verbose=False):
 def _(arg: str, verbose=False):
     attachmentFileSize = float(os.path.getsize(arg))
     return attachmentFileSize
-#end get_attachmentFileSize(rawattachment):
+#end get_attachmentFileSize(rawAttachment):
 
 @singledispatch
-def get_attachmentRemoteName(rawattachment):
+def get_attachmentRemoteName(rawAttachment):
     return
 @get_attachmentRemoteName.register
 def _(arg: tuple, verbose=False):
@@ -404,7 +429,7 @@ def _(arg: tuple, verbose=False):
 def _(arg: str, verbose=False):
     attachmentRemoteName = ""
     return attachmentRemoteName
-#end get_attachmentFileSize(rawattachment):
+#end get_attachmentFileSize(rawAttachment):
 
 if __name__ == '__main__':
     main()
