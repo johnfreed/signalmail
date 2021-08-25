@@ -31,6 +31,7 @@ from gi.repository import GLib  # for DBus processing
 
 from functools import singledispatch
 
+#default data_dir is ${HOME}/.local/share/signalmail/
 data_dir = os.path.join("$HOME",".local","share","signalmail","")
 
 # cli arg parser and help message:
@@ -118,9 +119,9 @@ try:
     signal_cli_path = config['SIGNAL']['signal_cli_path']
 except KeyError: True
 
-signalconfigpath = os.path.join('$HOME', '.local', 'share', 'signal-cli','')
+signalsettingspath = os.path.join('$HOME', '.local', 'share', 'signal-cli','')
 try:
-    signalconfigpath = config['SIGNAL']['signalconfigpath']
+    signalsettingspath = config['SIGNAL']['signalsettingspath']
 except KeyError: True
 
 smtpport = 587
@@ -148,7 +149,7 @@ try:
     contacts = config.items("CONTACTS")
 except KeyError: True
 
-attachmentpath = os.path.join(os.path.expandvars(signalconfigpath), "attachments", "")
+attachmentpath = os.path.join(os.path.expandvars(signalsettingspath), "attachments", "")
 
 #global flag to prevent double-calling if we are using V2 of the API
 APIV2 = False
