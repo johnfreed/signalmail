@@ -37,7 +37,7 @@ data_dir = os.path.join("$HOME",".local","share","signalmail","")
 # cli arg parser and help message:
 parser=argparse.ArgumentParser(
     description='''signalmail is a Python script which can send Signal messages via Email.
-    It's relying on signal-cli (https://github.com/AsamK/signal-cli) to fetch the actual messages.
+    It relies on signal-cli (https://github.com/AsamK/signal-cli) to fetch the actual messages.
     Configuration is done in config.ini in DATA_DIR and should be self explanatory.''')
 parser.add_argument("--no-sendmail", dest="no_sendmail", action="store_true", help="override config and do not send mail")
 parser.add_argument("--keep-attachments", dest="keep_attachments", action="store_true", help="override config and keep attachments")
@@ -45,6 +45,7 @@ parser.add_argument("--data-dir", dest="data_dir", help="set data directory (def
 parser.add_argument("--debug", action="store_true", help="override config and switch on debug mode")
 parser.add_argument("--no-autoreply", dest="no_autoreply", action="store_true", help="override config and do not send autoreply")
 parser.add_argument("--system", dest="system", action="store_true", help="override config and use system DBus")
+parser.add_argument("--useAPIV2", dest="useAPIV2", action="store_true", help="override config and use API V2")
 
 args=parser.parse_args()
 
@@ -109,6 +110,12 @@ try:
     sessiondbus = config['SWITCHES'].getboolean('sessiondbus')
 except KeyError: True
 
+#global flag to prevent double-calling if we are using V2 of the API
+APIV2 = False
+try:
+    APIV2 = config['SWITCHES'].getboolean('APIV2')
+except KeyError: True
+
 signalgroupid = ""
 try:
     signalgroupid = config['SIGNAL']['signalgroupid']
@@ -151,15 +158,13 @@ except KeyError: True
 
 attachmentpath = os.path.join(os.path.expandvars(signalsettingspath), "attachments", "")
 
-#global flag to prevent double-calling if we are using V2 of the API
-APIV2 = False
-
 # override config if asked to do so:
 if args.no_sendmail: sendmail = False
 if args.debug: debug = True
 if args.keep_attachments: deleteattachments = False
 if args.no_autoreply: autoreply=""
 if args.system: sessiondbus = False
+if args.useAPIV2: APIV2 = True
 
 if debug: print("startup: APIV2 is",APIV2)
 
@@ -177,12 +182,14 @@ def main():
 
     loop = GLib.MainLoop()
 
-    signal_client = connectToDBus();
+    signal_client = connectToDBus()
 
-    signal_client.onMessageReceivedV2 = msgRcv2
+    signal_client.onMessageReceivedV2 = msgRcvV2
     signal_client.onMessageReceived = msgRcv
     signal_client.onReceiptReceived = rcptRcv
+    signal_client.onReceiptReceivedV2 = rcptRcvV2
     signal_client.onSyncMessageReceived = syncRcv
+    
 
     loop.run()
 
@@ -195,21 +202,21 @@ def msgRcv (timestamp, sender, groupId, message, attachmentList):
     if APIV2: return
     if debug: print("msgRcv called")
     if debug: print("timestamp: ", timestamp, " sender: ", sender, " groupId: ", groupId, " message: ", message, " attachmentList: ", attachmentList)
-    msgRcv2 (timestamp, sender, groupId, message, [], attachmentList)
+    msgRcvV2 (timestamp, sender, groupId, message, [], attachmentList)
 
-def msgRcv2 (timestamp, sender, groupId, message, mentionList, attachmentList):
+def msgRcvV2 (timestamp, sender, groupId, message, mentionList, attachmentList):
     global APIV2
-    if debug: print("msgRcv2 called")
+    APIV2 = True
+    if debug: print("msgRcvV2 called")
     if debug: print("timestamp: ", timestamp, " sender: ", sender, " groupId: ", groupId, " message: ", message, " attachmentList: ", attachmentList)
     if debug: print("mentionList: ", mentionList)
 
-    APIV2 = True
 
     if autoreply and sender:
-        signal_client = connectToDBus();
+        signal_client = connectToDBus()
 
         if debug:
-            print("DEBUG - msgRcv2(): sending autoreply " + autoreply + " and attachment " + autoattach + " to sender " + sender)
+            print("DEBUG - msgRcvV2(): sending autoreply " + autoreply + " and attachment " + autoattach + " to sender " + sender)
         try:
             signal_client.sendMessage(autoreply, [autoattach], sender)
         except Exception as e:
@@ -223,13 +230,13 @@ def msgRcv2 (timestamp, sender, groupId, message, mentionList, attachmentList):
     # contacts lookup:
     # check if number is known:
     if contacts:
-        if debug: print("DEBUG - msgRcv2() - checking contacts")
+        if debug: print("DEBUG - msgRcvV2() - checking contacts")
         for j, k in contacts:
             if j == sender: sendername = k
-        if debug: print("DEBUG - msgRcv2() - Message - sender name: " + sendername)
+        if debug: print("DEBUG - msgRcvV2() - Message - sender name: " + sendername)
 
     else:
-        if debug: print("DEBUG - msgRcv2() - no contacts!")
+        if debug: print("DEBUG - msgRcvV2() - no contacts!")
 
     #expand mentions
     #objectReplacementCharacter is Unicode U+FFFC
@@ -247,11 +254,11 @@ def msgRcv2 (timestamp, sender, groupId, message, mentionList, attachmentList):
             name = signal_client.getContactName(number)
             newmessage += messagepart + "@" + name
             lastindex = position + length
-            if debug: print("DEBUG - msgRcv2() building message:", newmessage)
+            if debug: print("DEBUG - msgRcvV2() building message:", newmessage)
         if (lastindex <= len(message)):
             newmessage += message[lastindex:]    
         message = newmessage
-        if debug: print("DEBUG - msgRcv2() final message is:", message)
+        if debug: print("DEBUG - msgRcvV2() final message is:", message)
 
     # timestamp includes milliseconds, we have to strip them:
     timestamp = datetime.datetime.utcfromtimestamp(float(str(timestamp)[0:-3]))
@@ -285,17 +292,37 @@ def msgRcv2 (timestamp, sender, groupId, message, mentionList, attachmentList):
             if debug: print("DEBUG - main(): removing attachment " + attachment)
             os.remove(attachment)
     return
-#end msgRcv2
+#end msgRcvV2
 
 def rcptRcv (timestamp, sender):
+    global APIV2
+    if APIV2: return
     if debug:
         print ("rcptRcv called")
         print (sender)
     return
 
+def rcptRcvV2 (timestamp, sender, isDelivery, isRead, isViewed):
+    global APIV2
+    APIV2 = True
+    if debug:
+        print ("rcptRcvV2 called")
+        print("timestamp: ", timestamp, " sender: ", sender, " isDelivery: ", isDelivery, " isRead: ", isRead, " isViewed: ", isViewed)
+    return
+
 def syncRcv (timestamp, sender, destination, groupId, message, attachmentList):
+    global APIV2
+    if APIV2: return
     if debug:
         print ("syncRcv called")
+        print (sender)
+    return
+
+def syncRcvV2 (timestamp, sender, destination, groupId, message, mentionList, attachmentList):
+    global APIV2
+    APIV2 = True
+    if debug:
+        print ("syncRcvV2 called")
         print (sender)
     return
 
@@ -352,17 +379,19 @@ def dt_parse(t):
 
 def connectToDBus():
     if sessiondbus:
+        bus = SessionBus()
         try:
-            bus = SessionBus()
-            signal_client = bus.get('org.asamk.Signal')
-            if debug: print("Using session DBus")
+            signal_client = bus.get('org.asamk.Signal', '_' + signalnumber[1:])
+            if debug: print("Using session DBus for /org/asamk/Signal/_" + signalnumber[1:])
         except:
-            if debug: print("Could not connect to DBus using /org/asamk/Signal, trying alternative")
+            if debug: print("Could not connect to DBus using /org/asamk/Signal/_" + signalnumber[1:] + ", trying alternative")
             try:
-                signal_client = bus.get('org.asamk.Signal._' + signalnumber[1:])
-                if debug: print("Using session DBus for ", signalnumber)
+                signal_client = bus.get('org.asamk.Signal')
+                if (signalnumber != signal_client.getSelfNumber()):
+                    raise SystemExit(1)
+                if debug: print("Using session DBus on /org/asamk/Signal")
             except:
-                if debug: print("Could not connect to DBus using /org/asamk/Signal/_" + signalnumber[1:] + ", trying alternative")
+                if debug: print("Could not connect to DBus using /org/asamk/Signal")
                 print("Daemon error -- did you remember to specify --username to signal-cli and start it in daemon mode?", file=sys.stderr)
                 raise SystemExit(1)
     else:
