@@ -190,6 +190,21 @@ def main():
     global signal_client
     signal_client = connectToDBus()
 
+    # contacts lookup:
+    # check if number is known:
+    if contacts:
+        if debug: print("DEBUG - configuring contacts")
+        for contactNumber, contactName in contacts:
+            dbusName = signal_client.getContactName(contactNumber)
+            if not contactName == dbusName:
+                try:
+                    signal_client.setContactName(contactNumber, contactName)
+                    if debug: print("DEBUG - set contact name for " + contactNumber + " to " + contactName)
+                except:
+                    if debug: print("DEBUG - unable to set contact name for " + contactNumber + " to configured value " + contactName)
+    else:
+        if debug: print("DEBUG - no contacts!")
+
     signal_client.onMessageReceivedV2 = msgRcvV2
     signal_client.onMessageReceived = msgRcv
     signal_client.onReceiptReceived = rcptRcv
@@ -242,40 +257,29 @@ def msgRcvV2 (timestamp, sender, groupId, message, extras):
         sendername = signal_client.getContactName(sender)
     except:
         sendername = "unknown"
-    if debug: print('DEBUG - name from DBUS ', sendername)
-
-    # contacts lookup:
-    # check if number is known:
-    if contacts:
-        if debug: print("DEBUG - msgRcvV2() - checking contacts")
-        for j, k in contacts:
-            if j == sender:
-                if not k == sendername:
-                    sendername = k
-                    try:
-                        signal_client.setContactName(sender, sendername)
-                        if debug: print("DEBUG - set sender name for " + sender + " to " + sendername)
-                    except:
-                        if debug: print("DEBUG - unable to set sender name for " + sender + " to configured value " + sendername)
-        if debug: print("DEBUG - msgRcvV2() - Message - sender name: " + sendername)
-    else:
-        if debug: print("DEBUG - msgRcvV2() - no contacts!")
+    if debug: print("DEBUG - msgRcvV2() - Message - sender name: " + sendername)
 
     #expand mentions
     #objectReplacementCharacter is Unicode U+FFFC
     #  or \xEF\xBF\xBC in UTF-8
-    objectReplacementCharacter = b'\xEF\xBF\xBC'.decode("utf-8")
+    #objectReplacementCharacter = b'\xEF\xBF\xBC'.decode("utf-8")
     if mentionList:
         lastindex = 0
         newmessage = ""
-        signal_client = connectToDBus()
         for mention in mentionList:
-            number = mention[0]
-            position = mention[1]
-            length = mention[2]
+            if isinstance(mention, dict):
+                number = mention["recipient"]
+                position = mention["start"]
+                length = mention["length"]
+            else:
+                number = mention[0]
+                position = mention[1]
+                length = mention[2]
             messagepart = message[lastindex:position]
             name = signal_client.getContactName(number)
-            newmessage += messagepart + "@" + name
+            newmessage += messagepart + "@" + number
+            if name:
+                newmessage += " (" + name + ")"
             lastindex = position + length
             if debug: print("DEBUG - msgRcvV2() building message:", newmessage)
         if (lastindex <= len(message)):
