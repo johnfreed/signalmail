@@ -41,7 +41,9 @@ parser=argparse.ArgumentParser(
     Configuration is done in config.ini in DATA_DIR and should be self explanatory.''')
 parser.add_argument("--no-sendmail", dest="no_sendmail", action="store_true", help="override config and do not send mail")
 parser.add_argument("--keep-attachments", dest="keep_attachments", action="store_true", help="override config and keep attachments")
-parser.add_argument("--data-dir", dest="data_dir", help="set data directory (default: " + data_dir+ ")")
+parser.add_argument("--data-dir", dest="data_dir", help="set data directory (default: " + data_dir + ")")
+parser.add_argument("--config-file", dest="config_file", help="set config file, either an absolute path or relative to the data-directory (default: " + os.path.join(data_dir, "config.ini") + ")")
+parser.add_argument("--signal-account", dest="signalnumber", help="override config and use this number as Signal-account")
 parser.add_argument("--debug", action="store_true", help="override config and switch on debug mode")
 parser.add_argument("--no-autoreply", dest="no_autoreply", action="store_true", help="override config and do not send autoreply")
 parser.add_argument("--system", dest="system", action="store_true", help="override config and use system DBus")
@@ -75,18 +77,27 @@ if not os.path.exists(data_dir):
 config = configparser.ConfigParser()
 config.optionxform = lambda option: option # otherwise it's lowercase only
 
+config_file = os.path.join(data_dir, 'config.ini')
+if args.config_file:
+    if os.path.isabs(args.config_file):
+        config_File = argts.config_file
+    else:
+        config_file = os.path.join(data_dir, args.config_file)
+
 config.read(data_dir + 'config.ini')
 #mandatory config variables
 try:
     signalnumber = config['SIGNAL']['signalnumber']
+    signalname = config['SIGNAL']['signalname']
     mailfrom = config['MAIL']['mailfrom']
     mailsubject = config['MAIL']['mailsubject']
     addr_list = config['MAIL']['addr_list']
     smtpserver = config['MAIL']['smtpserver']
     smtpuser = config['MAIL']['smtpuser']
     smtppassword = config['MAIL']['smtppassword']
-except KeyError:
-    print("Configuration error -- " + data_dir + "config.ini incomplete", file=sys.stderr)
+except KeyError as key:
+    print(key)
+    print("Configuration error -- " + data_dir + "config.ini incomplete, missing key " + str(key) + ".", file=sys.stderr)
     raise SystemExit(1)
 
 #optional config variables, with defaults
@@ -170,8 +181,9 @@ if args.keep_attachments: deleteattachments = False
 if args.no_autoreply: autoreply=""
 if args.system: sessiondbus = False
 if args.useAPIV2: APIV2 = True
+if args.signalnumber: signalnumber = args.signalnumber
 
-if debug: print("startup: APIV2 is",APIV2)
+if debug: print("startup: APIV2 is", APIV2)
 
 # main program:
 def main():
@@ -202,8 +214,19 @@ def main():
                     if debug: print("DEBUG - set contact name for " + contactNumber + " to " + contactName)
                 except:
                     if debug: print("DEBUG - unable to set contact name for " + contactNumber + " to configured value " + contactName)
+            else:
+                if debug: print("DEBUG - contact name " + contactName + " for " + contactNumber + " is already configured")
     else:
         if debug: print("DEBUG - no contacts!")
+
+    # finally add the own number if not already there
+    if signalname:
+        selfName = signal_client.getContactName(signalnumber)
+        if not selfName:
+            signal_client.setContactName(signalnumber, signalname)
+            if debug: print("DEBUG - set own display name to '" + signalname + "'.")
+        else:
+            if debug: print("DEBUG - own display name already configured as '" + signalname + "'.")
 
     signal_client.onMessageReceivedV2 = msgRcvV2
     signal_client.onMessageReceived = msgRcv
@@ -240,7 +263,10 @@ def msgRcvV2 (timestamp, sender, groupId, message, extras):
     if debug: print("extras: ", extras)
     if debug: print("groupId: ", groupIdEncoded)
 
-    groupName = signal_client.getGroupName(groupId)
+    if groupId:
+        groupName = signal_client.getGroupName(groupId)
+    else:
+        groupName = ""
 
     if autoreply and sender:
         if debug:
