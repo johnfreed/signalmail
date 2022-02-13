@@ -167,6 +167,11 @@ try:
     contacts = config.items("CONTACTS")
 except KeyError: True
 
+exclude = []
+try:
+    exclude = config.items("EXCLUDE")
+except KeyError: True
+
 headers = []
 try:
     headers = config.items("HEADERS")
@@ -253,6 +258,10 @@ def msgRcvV2 (timestamp, sender, groupId, message, extras):
     global APIV2
     APIV2 = True
     if debug: print("msgRcvV2 called")
+
+    if sender in config["EXCLUDE"]:
+        if debug: print('DEBUG - excluding ' + sender)
+        return
 
     # de- and encode some of the given arguments to more convenient formats
     mentionList = extras.get("mentions", [])
