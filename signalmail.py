@@ -233,6 +233,7 @@ def main():
     signal_client.onReceiptReceived = rcptRcv
     signal_client.onReceiptReceivedV2 = rcptRcvV2
     signal_client.onSyncMessageReceived = syncRcv
+    signal_client.onSyncMessageReceivedV2 = syncRcvV2
 
     loop.run()
 
@@ -360,12 +361,19 @@ def rcptRcv (timestamp, sender):
         print (sender)
     return
 
-def rcptRcvV2 (timestamp, sender, isDelivery, isRead, isViewed):
+#
+# type parameter
+# - read
+# - viewed
+# - delivery
+# - unknown
+#
+def rcptRcvV2 (timestamp, sender, type, extras):
     global APIV2
     APIV2 = True
     if debug:
         print ("rcptRcvV2 called")
-        print("timestamp: ", timestamp, " sender: ", sender, " isDelivery: ", isDelivery, " isRead: ", isRead, " isViewed: ", isViewed)
+        print("timestamp: ", timestamp, ", sender: ", sender, ", type: ", type, ", extras: ", extras)
     return
 
 def syncRcv (timestamp, sender, destination, groupId, message, attachmentList):
@@ -376,7 +384,7 @@ def syncRcv (timestamp, sender, destination, groupId, message, attachmentList):
         print (sender)
     return
 
-def syncRcvV2 (timestamp, sender, destination, groupId, message, mentionList, attachmentList):
+def syncRcvV2 (timestamp, sender, destination, groupId, message, extras):
     global APIV2
     APIV2 = True
     if debug:
