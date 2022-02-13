@@ -567,7 +567,7 @@ def get_attachmentRemoteName(rawAttachment):
     return
 @get_attachmentRemoteName.register
 def _(arg: dict, verbose=False):
-    attachmentRemoteName = arg["remoteId"]
+    attachmentRemoteName = arg["fileName"]
     return attachmentRemoteName
 @get_attachmentRemoteName.register
 def _(arg: tuple, verbose=False):
