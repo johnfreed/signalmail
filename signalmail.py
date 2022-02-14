@@ -91,6 +91,8 @@ try:
     signalname = config['SIGNAL']['signalname']
     mailfrom = config['MAIL']['mailfrom']
     mailsubject = config['MAIL']['mailsubject']
+    mailsignature = config['MAIL']['mailsignature']
+    bodyHeading = config['MAIL']['bodyheading']
     addr_list = config['MAIL']['addr_list']
     smtpserver = config['MAIL']['smtpserver']
     smtpuser = config['MAIL']['smtpuser']
@@ -160,6 +162,11 @@ except KeyError: True
 autoattach = ""
 try:
     autoattach = config['OTHER']['autoattach']
+except KeyError: True
+
+timeformat = "%Y-%m-%d %H:%M:%S %Z"
+try:
+    timeformat = config['OTHER']['timeformat']
 except KeyError: True
 
 contacts = []
@@ -324,27 +331,37 @@ def msgRcvV2 (timestamp, sender, groupId, message, extras):
         if debug: print("DEBUG - msgRcvV2() final message is:", message)
 
     # timestamp includes milliseconds, we have to strip them:
-    timestamp = datetime.datetime.utcfromtimestamp(float(str(timestamp)[0:-3]))
+    timestamp = datetime.datetime.fromtimestamp(float(str(timestamp)[0:-3]), getLocalTimezone())
 
-    mailtext = "New Signal message from " + str(sendername) + " (" +str(sender) + "), sent " + str(timestamp) + " ...\n" + message + "\n\n"
+    replacements = {
+        "{senderId}": sender,
+        "{senderName}": sendername,
+        "{groupId}": groupIdEncoded,
+        "{groupName}": groupName,
+        "{timestamp}": timestamp.strftime(timeformat),
+    }
+    mailtext = replacePlaceholders(bodyHeading, replacements) + "\n" \
+        + message \
+        + "\n\n-- \n" + replacePlaceholders(mailsignature, replacements)
     if debug: print("## Message :")
     if debug: print(mailtext)
     if debug: print("## end of message")
 
+    extraHeaders = {}
+    for header, headerValue in headers:
+        headerValue = replacePlaceholders(headerValue, replacements)
+        if headerValue:
+            extraHeaders[header] = headerValue
+    
     # send mail if activated:
     if sendmail == True:
         if debug: print("\nsignalmail is sending emails")
-        sendemail(sender = sender,
-              senderName = sendername,
-              groupId = groupIdEncoded,
-              groupName = groupName,
-              from_addr    = mailfrom,
+        sendemail(from_addr    = replacePlaceholders(mailfrom, replacements),
               addr_list = addr_list,
-              subject      = mailsubject,
-              headers      = headers,
+              subject      = replacePlaceholders(mailsubject, replacements),
+              headers      = extraHeaders,
               message      = mailtext,
               attachmentList   = attachmentList,
-              timestamp    = timestamp,
               login        = smtpuser,
               password     = smtppassword,
               server       = smtpserver,
@@ -402,25 +419,17 @@ def syncRcvV2 (timestamp, sender, destination, groupId, message, extras):
     return
 
 # function handles sending of emails
-def sendemail(sender, senderName, groupId, groupName, from_addr, addr_list, subject, headers, message, attachmentList, timestamp, login, password, server, port):
+def sendemail(from_addr, addr_list, subject, headers, message, attachmentList, login, password, server, port):
     if debug: print("DEBUG - sendemail(): called, login=" + login + " password=" + password + " server=" + server + " port=" + port + "\nMessage=", message)
     if debug: print("DEBUG - sendemail(): attachmentList=")
     if debug: print(attachmentList)
-    replacements = {
-        "{senderId}": sender,
-        "{senderName}": senderName,
-        "{groupId}": groupId,
-        "{groupName}": groupName,
-    }.items()
     msg = EmailMessage()
-    msg["From"] = reduce(lambda a, kv: a.replace(*kv), replacements, from_addr)
+    msg["From"] = from_addr
     msg["To"] = addr_list
-    msg["Subject"] = reduce(lambda a, kv:  a.replace(*kv), replacements, subject)
+    msg["Subject"] = subject
     # add sender and group as custom headers
-    for header, headerValue in headers:
-        headerValue = reduce(lambda a, kv: a.replace(*kv), replacements, headerValue)
-        if headerValue:
-            msg[header] = headerValue
+    for header, headerValue in headers.items():
+        msg[header] = headerValue
     msg.set_content(message)
 
     for rawAttachment in attachmentList:
@@ -448,20 +457,16 @@ def sendemail(sender, senderName, groupId, groupName, from_addr, addr_list, subj
     server.sendmail(from_addr, addr_list.split(','), msg.as_string())
     server.quit()
     if debug: print("DEBUG - sendemail(): finished")
-#end sendemail(from_addr, addr_list, subject, message, attachmentList, timestamp, login, password, server, port):
+#end sendemail(from_addr, addr_list, subject, message, attachmentList, login, password, server, port):
 
+# Replace multiple placeholders according to the keys of repalcements dict
+def replacePlaceholders(inputString, replacements):
+    if debug: print("DEBUG - replacements", replacements)
+    return reduce(lambda a, kv: a.replace(*kv), replacements.items(), inputString)
 
-# this is a ugly workaround to convert timestamps in python < 3.2, see https://stackoverflow.com/questions/26165659/python-timezone-z-directive-for-datetime-strptime-not-available#26177579
-def dt_parse(t):
-    if debug: print("DEBUG - dt_parse(): called")
-    ret = datetime.datetime.strptime(t[0:24],'%a, %d %b %Y %H:%M:%S') #e.g: Fri, 26 Jan 2018 12:36:52 +0100
-    if t[26]=='+':
-        ret-=datetime.timedelta(hours=int(t[27:29]),minutes=int(t[29:]))
-    elif t[26]=='-':
-        ret+=datetime.timedelta(hours=int(t[27:29]),minutes=int(t[29:]))
-    if debug: print("DEBUG - dt_parse(): finished")
-    return ret
-#end dt_parse(t):
+# Why is Python so great?
+def getLocalTimezone():
+    return datetime.datetime.now(datetime.timezone.utc).astimezone().tzinfo
 
 def connectToDBus():
     if sessiondbus:
